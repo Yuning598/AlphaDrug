@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 <!--
  * @Author: QHGG
  * @Date: 2022-05-07 17:24:57
@@ -124,3 +125,6 @@ If you find this repo useful, please cite our paper:
 
 ## Contact
 If you have any question, please contact us: <a href="mailto:qhonearth@sjtu.edu.cn">qhonearth@sjtu.edu.cn</a>
+=======
+# AlphaDrug
+>>>>>>> 8fbd8d4440f81e6b0ad8928a90e0fbce2a5512e7

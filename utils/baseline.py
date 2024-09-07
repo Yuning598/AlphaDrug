@@ -11,37 +11,42 @@ import json
 import re
 import numpy as np
 import pandas as pd
+import torch
 from loguru import logger
 from tqdm import tqdm
 from torch.utils.data import Dataset, DataLoader
 from rdkit import Chem
 from scipy import stats
 from easydict import EasyDict
+import selfies as sf
+from sklearn.model_selection import train_test_split
 
 class MyDataset(Dataset):
     
     def __init__(self, data):
-        proIndices, smiIndices, labelIndices, proMask, smiMask = data
+        proIndices, selIndices, labelIndices, proMask, selMask = data
         self._len = len(proIndices)
         self.x = proIndices
-        self.y = smiIndices
+        self.y = selIndices
         self.label = labelIndices
         self.proMask = proMask
-        self.smiMask = smiMask
+        self.selMask = selMask
     
     def __getitem__(self, idx):
         proMask = [1.0] * self.proMask[idx] + [0.0] * (len(self.x[idx]) - self.proMask[idx])
-        smiMask = [1.0] * self.smiMask[idx] + [0.0] * (len(self.label[idx]) - self.smiMask[idx])
+        selMask = [1.0] * self.selMask[idx] + [0.0] * (len(self.label[idx]) - self.selMask[idx])
         
         return self.x[idx], self.y[idx], self.label[idx], np.array(proMask).astype(int), \
-        np.array(smiMask).astype(int)
+        np.array(selMask).astype(int)
 
     def __len__(self):
         return self._len
 
 def prepareDataset(config):
-    train = prepareData(config, 'train')
-    valid = prepareData(config, 'valid')
+    train, valid = prepareData(config)
+
+
+
     trainLoader = DataLoader(MyDataset(train), shuffle=True, batch_size=config.batchSize, drop_last=False)
     validLoader = DataLoader(MyDataset(valid), shuffle=False, batch_size=config.batchSize, drop_last=False)
 
@@ -53,92 +58,108 @@ def padPocCoords(Coords, MaxLen):
 def padLabelPocCoords(Coords, MaxLen):
     return Coords + (MaxLen - len(Coords)) * [[0.0,0.0,0.0]]
 
-def smilesCoordsMask(mask, MaxLen):
+def selfiesCoordsMask(mask, MaxLen):
     return mask + (MaxLen - len(mask)) * [0]
 
-def readBindingDB(PATH):
-    i = 0
-    n = 0
-    pdbidArr = []
-    pocSeqArr = []
-    smiArr = []
-    affinityArr = []
-    with open(PATH, 'r') as f:
-        for lines in tqdm(f.readlines()):
-            n+=1
-            arr = lines.split(' ')
-            pocSeq = arr[0] 
-            print(lines.split('\t'))
-            smi = arr[1][:-1]
-            try:
-                mol = Chem.MolFromSmiles(smi)
-                mol = Chem.RemoveHs(mol, sanitize=False)
-                smi = Chem.MolToSmiles(mol)
-                if '%' in smi:
-                    continue
-                if '.' in smi:
-                    continue
-            except:
-                continue
+# def readBindingDB(PATH):
+#     i = 0
+#     n = 0
+#     pdbidArr = []
+#     pocSeqArr = []
+#     selArr = []
+#     affinityArr = []
+#     with open(PATH, 'r') as f:
+#         for lines in tqdm(f.readlines()):
+#             n+=1
+#             arr = lines.split(' ')
+#             pocSeq = arr[0]
+#             print(lines.split('\t'))
+#             sel = arr[1][:-1]
+#             try:
+#                 mol = Chem.MolFromSmiles(sel)
+#                 mol = Chem.RemoveHs(mol, sanitize=False)
+#                 sel = Chem.MolToSmiles(mol)
+#                 if '%' in sel:
+#                     continue
+#                 if '.' in sel:
+#                     continue
+#             except:
+#                 continue
+#
+#             pdbidArr.append('xxxx')
+#             pocSeqArr.append(pocSeq)
+#             selArr.append(sel)
+#             affinityArr.append(0.0)
+#
+#             i+=1
+#
+#
+#     print(i, n, i / n)
+#
+#     data = pd.DataFrame({
+#         'pdbid': pdbidArr,
+#         'protein': pocSeqArr,
+#         'smile': selArr,
+#         'affinity': affinityArr,
+#     })
+#     return data
 
-            pdbidArr.append('xxxx')
-            pocSeqArr.append(pocSeq)
-            smiArr.append(smi)
-            affinityArr.append(0.0)
+def prepareData(config):
 
-            i+=1
-
-
-    print(i, n, i / n)
-
-    data = pd.DataFrame({
-        'pdbid': pdbidArr,
-        'protein': pocSeqArr,
-        'smile': smiArr,
-        'affinity': affinityArr,
-    })
-    return data
-
-def prepareData(config, orign):
-    logger.info('prepare %s data' % orign)
-    with open('./data/train-val-split.json', 'r') as f:
-        data_config = json.load(f)
-    slices = data_config[orign]
-    data = pd.read_csv('./data/train-val-data.tsv', sep = '\t')
-
+    data = pd.read_csv('./data/small_with_selfies.tsv', sep = '\t')
     # 小样本测试
-    # slices = [i for i in slices if i < 1000]
-    
-    data = data.loc[slices]
-    smiArr = data['smiles'].apply(splitSmi).tolist()
-    proArr = data['protein'].apply(list).tolist()
-    
-    logger.info('prepare %s smiles' % orign)
-    smiIndices, labelIndices, smiMask = fetchIndices(smiArr, config.smiVoc, config.smiMaxLen)
-    
-    logger.info('prepare %s proteins' % orign)
-    proIndices, _, proMask = fetchIndices(proArr, config.proVoc, config.proMaxLen)
-    
-    return proIndices, smiIndices, labelIndices, proMask, smiMask
+    # print(slices)
+    # slices = slices[:10]
+
+    # Randomly split the data into train and validation sets
+    train_data, val_data = train_test_split(data, test_size=0.3, random_state=42)
+
+    # Process training data
+    logger.info('Processing training data')
+    selArr_train = train_data['selfies'].apply(splitSelfies).tolist()
+    proArr_train = train_data['protein'].apply(list).tolist()
+
+    selIndices_train, labelIndices_train, selMask_train = fetchIndices(selArr_train, config.selVoc, config.selMaxLen)
+    proIndices_train, _, proMask_train = fetchIndices(proArr_train, config.proVoc, config.proMaxLen)
+
+    # Process validation data
+    logger.info('Processing validation data')
+    selArr_val = val_data['selfies'].apply(splitSelfies).tolist()
+    proArr_val = val_data['protein'].apply(list).tolist()
+
+    selIndices_val, labelIndices_val, selMask_val = fetchIndices(selArr_val, config.selVoc, config.selMaxLen)
+    proIndices_val, _, proMask_val = fetchIndices(proArr_val, config.proVoc, config.proMaxLen)
+
+    selIndices_train = torch.tensor(selIndices_train, dtype=torch.long)
+    labelIndices_train = torch.tensor(labelIndices_train, dtype=torch.long)
+    selMask_train = torch.tensor(selMask_train, dtype=torch.long)
+    proIndices_train = torch.tensor(proIndices_train, dtype=torch.long)
+    proMask_train = torch.tensor(proMask_train, dtype=torch.long)
+    labelIndices_val = torch.tensor(labelIndices_val, dtype=torch.long)
+    # Return both training and validation data
+    train = (proIndices_train, selIndices_train, labelIndices_train, proMask_train, selMask_train)
+    valid = (proIndices_val, selIndices_val, labelIndices_val, proMask_val, selMask_val)
+
+    return train, valid
 
 def loadConfig(args):
     logger.info('prepare data config...')
-    data = pd.read_csv('./data/train-val-data.tsv', sep = '\t')
+    data = pd.read_csv('./data/small_with_selfies.tsv', sep = '\t')
     
     proMaxLen = max(list(data['protein'].apply(len))) + 2
-    smiMaxLen = max(list(data['smiles'].apply(splitSmi).apply(len))) + 2
+    selMaxLen = max(list(data['selfies'].apply(splitSelfies).apply(len))) + 2
 
     pros_split = data['protein'].apply(list)
     proVoc = sorted(list(set([i for j in pros_split for i in j])) + ['&', '$', '^'])
 
-    smiles_split = data['smiles'].apply(splitSmi)
-    smiVoc = sorted(list(set([i for j in smiles_split for i in j])) + ['&', '$', '^'])
+    selfies_split = data['selfies'].apply(splitSelfies)
+    selVoc = sorted(list(set([i for j in selfies_split for i in j])) + ['&', '$', '^'])
 
     return EasyDict({
         'proMaxLen': proMaxLen,
-        'smiMaxLen': smiMaxLen,
+        'selMaxLen': selMaxLen,
         'proVoc': proVoc,
-        'smiVoc': smiVoc,
+        'selVoc': selVoc,
         'args': args
     })
 
@@ -182,26 +203,46 @@ def splitSmi(smi):
     return tokens
 
 
-def fetchIndices(smiArr, smiVoc, smiMaxLen):
-    smiIndices = []
+def splitSelfies(selfie):
+    '''
+    description: Decomposes a SELFIES string into its smallest components (tokens).
+    param {*} selfie: A string in SELFIES format.
+    return {*}: A list of tokens extracted from the SELFIES string.
+    '''
+    # Check if the input is a valid SELFIES string
+
+
+    # Use regex to split SELFIES string based on bracketed groups
+    pattern = r'(\[[^\]]+\])'  # Pattern to match each [token]
+    tokens = re.findall(pattern, selfie)
+    tokens_without_brackets = [token.strip('[]') for token in tokens]
+    # Reconstruct to check the correctness of the tokenization
+    reconstructed_selfie = ''.join(tokens)
+    assert selfie == reconstructed_selfie, "The tokenized SELFIES does not match the original."
+
+    return tokens_without_brackets
+
+
+def fetchIndices(selArr, selVoc, selMaxLen):
+    selIndices = []
     labelIndices = []
     mask = []
     # padding symbol: ^ ; end symbol: $ ; start symbol: &
-    for smi in tqdm(smiArr):
-        smiSplit = smi[:]
-        smiSplit.insert(0, '&')
-        smiSplit.append('$')
+    for sel in tqdm(selArr):
+        selSplit = sel[:]
+        selSplit.insert(0, '&')
+        selSplit.append('$')
 
-        labelSmi = smiSplit[1:]
-        mask.append(len(smiSplit))
+        labelSel = selSplit[1:]
+        mask.append(len(selSplit))
 
-        smiSplit.extend(['^'] * (smiMaxLen - len(smiSplit)))
-        smiIndices.append([smiVoc.index(smi) for smi in smiSplit])
+        selSplit.extend(['^'] * (selMaxLen - len(selSplit)))
+        selIndices.append([selVoc.index(sel) for sel in selSplit])
 
-        labelSmi.extend(['^'] * (smiMaxLen - len(labelSmi)))
-        labelIndices.append([smiVoc.index(smi) for smi in labelSmi])
+        labelSel.extend(['^'] * (selMaxLen - len(labelSel)))
+        labelIndices.append([selVoc.index(sel) for sel in labelSel])
 
-    return np.array(smiIndices), np.array(labelIndices), np.array(mask)
+    return np.array(selIndices), np.array(labelIndices), np.array(mask)
 
 
 

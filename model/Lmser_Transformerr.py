@@ -18,15 +18,15 @@ def _get_clones(module, N):
     return nn.ModuleList([copy.deepcopy(module) for i in range(N)])
 
 class MFT(nn.Module):
-
-    def __init__(self, d_model=512, nhead=4, num_layers=4, dim_feedforward=1024, pro_voc_len=10, 
-    smi_voc_len=10,proPaddingIdx=0,smiPaddingIdx=0, smiMaxLen=1, proMaxLen=1, **kwargs):
+# 12
+    def __init__(self, d_model=512, nhead=4, num_layers=4, dim_feedforward=1024, pro_voc_len=10,
+                 sel_voc_len=10, proPaddingIdx=0, selPaddingIdx=0, selMaxLen=1, proMaxLen=1, **kwargs):
         super(MFT, self).__init__()
 
         self.d_model = d_model
         self.proEmbedding = nn.Embedding(pro_voc_len, d_model, proPaddingIdx)
-        self.smiEmbedding = nn.Embedding(smi_voc_len, d_model, smiPaddingIdx)
-        self.smiPE = PositionalEncoding(d_model, 0.1, smiMaxLen)
+        self.selEmbedding = nn.Embedding(sel_voc_len, d_model, selPaddingIdx)
+        self.selPE = PositionalEncoding(d_model, 0.1, selMaxLen)
         self.proPE = PositionalEncoding(d_model, 0.1, proMaxLen)
 
         mft_layer = MFTLayer(d_model, nhead, dim_feedforward)
@@ -34,9 +34,9 @@ class MFT(nn.Module):
         self.e_norm = nn.LayerNorm(d_model)
         self.d_norm = nn.LayerNorm(d_model)
 
-        self.linear = nn.Linear(d_model, smi_voc_len)
-        self.valueLinear1 = nn.Linear(d_model, smi_voc_len)
-        self.valueLinear2 = nn.Linear(smi_voc_len, 1)
+        self.linear = nn.Linear(d_model, sel_voc_len)
+        self.valueLinear1 = nn.Linear(d_model, sel_voc_len)
+        self.valueLinear2 = nn.Linear(sel_voc_len, 1)
         self.coordsLinear1 = nn.Linear(d_model, 32)
         self.coordsLinear2 = nn.Linear(32, 3)
 
@@ -47,23 +47,28 @@ class MFT(nn.Module):
             if p.dim() > 1:
                 nn.init.xavier_uniform_(p)
 
-    def forward(self, src, tgt, smiMask, proMask, tgt_mask):
+    def forward(self, src, tgt, selMask, proMask, tgt_mask):
+        print("Target mask (tgt_mask) shape:", tgt_mask.shape if tgt_mask is not None else None)
         tgt_mask = tgt_mask.squeeze(0)
+        src = src.long()
+        tgt = tgt.long()
+
         src = self.proEmbedding(src)
         src = self.proPE(src)
         src = src.permute(1, 0, 2)
 
-        tgt = self.smiEmbedding(tgt)
-        tgt = self.smiPE(tgt)
+        tgt = self.selEmbedding(tgt)
+        tgt = self.selPE(tgt)
         tgt = tgt.permute(1, 0, 2)
 
         src_key_padding_mask = ~(proMask.to(torch.bool))
-        tgt_key_padding_mask = ~(smiMask.to(torch.bool))
+        tgt_key_padding_mask = ~(selMask.to(torch.bool))
         memory_key_padding_mask = ~(proMask.to(torch.bool))
         
         
         e_out = src
         d_out = tgt
+
         for idx, mod in enumerate(self.layers):
             e_out, d_out = mod(e_out, d_out, tgt_mask=tgt_mask, src_key_padding_mask=src_key_padding_mask,\
                 tgt_key_padding_mask=tgt_key_padding_mask, memory_key_padding_mask=memory_key_padding_mask)
@@ -84,7 +89,8 @@ class MFTLayer(nn.Module):
     def forward(self, src, tgt, tgt_mask=None, src_key_padding_mask=None,
     tgt_key_padding_mask=None, memory_key_padding_mask=None):
         e_out = self.encoder(src, src_key_padding_mask=src_key_padding_mask)
-        t_out = self.decoder(tgt, e_out, tgt_mask=tgt_mask,tgt_key_padding_mask=tgt_key_padding_mask,
+
+        t_out = self.decoder(tgt, e_out, tgt_mask=tgt_mask, tgt_key_padding_mask=tgt_key_padding_mask,
         memory_key_padding_mask=memory_key_padding_mask)
 
         return e_out, t_out

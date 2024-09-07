@@ -24,27 +24,27 @@ from model.Lmser_Transformerr import MFT as DrugTransformer
 # from model.Transformer import MFT as DrugTransformer
 # from model.Transformer_Encoder import MFT as DrugTransformer
 
-def train(model, trainLoader, smiVoc, proVoc, device):
+def train(model, trainLoader, selVoc, proVoc, device):
     batch = len(trainLoader)
     totalLoss = 0.0
     totalAcc = 0.0
-    for protein, smile, label, proMask, smiMask in tqdm(trainLoader):
+    for protein, selfies, label, proMask, selMask in tqdm(trainLoader):
         protein = torch.as_tensor(protein).to(device)
-        smile = torch.as_tensor(smile).to(device)
+        selfies = torch.as_tensor(selfies).to(device)
         proMask = torch.as_tensor(proMask).to(device)
-        smiMask = torch.as_tensor(smiMask).to(device)
+        selMask = torch.as_tensor(selMask).to(device)
         label = torch.as_tensor(label).to(device)
         
-        tgt_mask = nn.Transformer.generate_square_subsequent_mask(model,smile.shape[1]).tolist()
-        tgt_mask = [tgt_mask] * len(device_ids)
+        tgt_mask = nn.Transformer.generate_square_subsequent_mask(model, selfies.shape[1]).tolist()
+        # tgt_mask = [tgt_mask] * len(device_ids)
         tgt_mask = torch.as_tensor(tgt_mask).to(device)
         
-        out = model(protein, smile, smiMask, proMask, tgt_mask)
+        out = model(protein, selfies, selMask, proMask, tgt_mask)
         # tgt = torch.argmax(out, dim=-1)
-        cacc = ((torch.eq(torch.argmax(out, dim=-1) * smiMask, label * smiMask).sum() - (smiMask.shape[0] * smiMask.shape[1] - (smiMask).sum())) / (smiMask).sum().float()).item()
+        cacc = ((torch.eq(torch.argmax(out, dim=-1) * selMask, label * selMask).sum() - (selMask.shape[0] * selMask.shape[1] - (selMask).sum())) / (selMask).sum().float()).item()
         
         totalAcc += cacc
-        loss = F.nll_loss(out.permute(0, 2, 1), label, ignore_index=smiVoc.index('^')) # mask padding
+        loss = F.nll_loss(out.permute(0, 2, 1), label, ignore_index=selVoc.index('^')) # mask padding
 
         # loss = vLoss
         totalLoss += loss.item()
@@ -61,32 +61,32 @@ def train(model, trainLoader, smiVoc, proVoc, device):
 
 
 @torch.no_grad()
-def valid(model, validLoader, smiVoc, proVoc, device):
+def valid(model, validLoader, selVoc, proVoc, device):
     model.eval()
     
     batch = len(validLoader)
     totalLoss = 0
     totalAcc = 0
-    for protein, smile, label, proMask, smiMask in tqdm(validLoader):
+    for protein, selfies, label, proMask, selMask in tqdm(validLoader):
         protein = torch.as_tensor(protein).to(device)
-        smile = torch.as_tensor(smile).to(device)
+        selfies = torch.as_tensor(selfies).to(device)
         proMask = torch.as_tensor(proMask).to(device)
-        smiMask = torch.as_tensor(smiMask).to(device)
+        selMask = torch.as_tensor(selMask).to(device)
         label = torch.as_tensor(label).to(device)
         
-        tgt_mask = nn.Transformer.generate_square_subsequent_mask(model,smile.shape[1]).tolist()
-        tgt_mask = [tgt_mask] * len(device_ids)
+        tgt_mask = nn.Transformer.generate_square_subsequent_mask(model,selfies.shape[1]).tolist()
+        # tgt_mask = [tgt_mask] * len(device_ids)
         tgt_mask = torch.as_tensor(tgt_mask).to(device)
 
-        out = model(protein, smile, smiMask, proMask, tgt_mask)
+        out = model(protein, selfies, selMask, proMask, tgt_mask)
         
-        # totalAcc += ((torch.eq(torch.argmax(out, dim=2) * smiMask, label * smiMask).sum() - (smiMask.shape[0] * smiMask.shape[1] - smiMask.sum())) / smiMask.sum()).item()
+        # totalAcc += ((torch.eq(torch.argmax(out, dim=2) * selMask, label * selMask).sum() - (selMask.shape[0] * selMask.shape[1] - selMask.sum())) / selMask.sum()).item()
         
-        cacc = ((torch.eq(torch.argmax(out, dim=-1) * smiMask, label * smiMask).sum() - (smiMask.shape[0] * smiMask.shape[1] - (smiMask).sum())) / (smiMask).sum().float()).item()
+        cacc = ((torch.eq(torch.argmax(out, dim=-1) * selMask, label * selMask).sum() - (selMask.shape[0] * selMask.shape[1] - (selMask).sum())) / (selMask).sum().float()).item()
         
         totalAcc += cacc
 
-        loss = F.nll_loss(out.permute(0, 2, 1), label, ignore_index=smiVoc.index('^')) # mask padding
+        loss = F.nll_loss(out.permute(0, 2, 1), label, ignore_index=selVoc.index('^')) # mask padding
 
         # loss = vLoss
         totalLoss += loss.item()
@@ -102,8 +102,8 @@ if __name__ == '__main__':
     
     parser.add_argument('--layers', type=int, default=4, help='transformer layers')
     parser.add_argument('-l', action="store_true", help='learning rate')
-    parser.add_argument('--epoch', type=int, default=501, help='epochs')
-    parser.add_argument('--device', type=str, default='0,1,2,3', help='device')
+    parser.add_argument('--epoch', type=int, default=5, help='epochs')
+    parser.add_argument('--device', type=str, default='0', help='device')
     parser.add_argument('--pretrain', type=str, default='', help='pretrain model path')
     parser.add_argument('--bs', type=int, default=32, help='bs')
     parser.add_argument('--note', type=str, default='', help='note')
@@ -115,7 +115,8 @@ if __name__ == '__main__':
     
     exp_folder, model_folder, vis_folder = prepareFolder()
     logger.success(args)
-
+    print(torch.__version__)  # Check PyTorch version
+    print(torch.version.cuda)
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     device_ids = [int(i) for i in args.device.split(',') if i!=''] # 10卡机
     batchSize = args.bs * len(device_ids)
@@ -127,13 +128,13 @@ if __name__ == '__main__':
     trainLoader, validLoader = prepareDataset(config)
     settings = {
             'remark': args.note,
-            'smiVoc': config.smiVoc,
+            'selVoc': config.selVoc,
             'proVoc': config.proVoc,
-            'smiMaxLen': config.smiMaxLen,
+            'selMaxLen': config.selMaxLen,
             'proMaxLen': config.proMaxLen,
-            'smiPaddingIdx': config.smiVoc.index('^'),
+            'selPaddingIdx': config.selVoc.index('^'),
             'proPaddingIdx': config.proVoc.index('^'),
-            'smi_voc_len': len(config.smiVoc),
+            'sel_voc_len': len(config.selVoc),
             'pro_voc_len': len(config.proVoc),
             'batchSize': config.batchSize,
             'epoch': epoch,
@@ -149,7 +150,7 @@ if __name__ == '__main__':
         json.dump(settings, f)
 
     model = DrugTransformer(**settings)
-    model = torch.nn.DataParallel(model, device_ids=device_ids) # 指定要用到的设备
+    # model = torch.nn.DataParallel(model, device_ids=device_ids) # 指定要用到的设备
     model = model.to(device) # 模型加载到设备0
 
     if len(args.pretrain):
@@ -170,10 +171,10 @@ if __name__ == '__main__':
 
     for i in range(epoch):
         logger.info('EPOCH: {} 训练'.format(i))
-        d1 = train(model, trainLoader, config.smiVoc, config.proVoc, device)
+        d1 = train(model, trainLoader, config.selVoc, config.proVoc, device)
         
         logger.info('EPOCH: {} 验证'.format(i))
-        d2  = valid(model, validLoader, config.smiVoc, config.proVoc, device)
+        d2  = valid(model, validLoader, config.selVoc, config.proVoc, device)
         
         logdf = logdf.append(pd.DataFrame([d1+d2], columns=columns), ignore_index=True)
         trainingVis(logdf, batchSize, lr, vis_folder)

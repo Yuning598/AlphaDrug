@@ -214,7 +214,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-k', type=int, default=0, help='protein index')
     parser.add_argument('--device', type=str, default='0')
-    parser.add_argument('-st', type=int, default=10, help='simulation times')
+    parser.add_argument('-st', type=int, default=50, help='simulation times')
     parser.add_argument('--source', type=str, default='new')
     parser.add_argument('-p', type=str, default='test2', help='pretrained model')
 

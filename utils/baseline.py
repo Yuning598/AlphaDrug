@@ -23,7 +23,9 @@ from sklearn.model_selection import train_test_split
 
 class MyDataset(Dataset):
     
-    def __init__(self, data):
+    def __init__(self, data, embedding_path):
+        self.drug_embeddings = np.load('drug_embeddings_96dim.npy')
+
         proIndices, selIndices, labelIndices, proMask, selMask = data
         self._len = len(proIndices)
         self.x = proIndices
@@ -33,6 +35,7 @@ class MyDataset(Dataset):
         self.selMask = selMask
     
     def __getitem__(self, idx):
+        drug_embedding = self.drug_embeddings[self.y[idx]]
         proMask = [1.0] * self.proMask[idx] + [0.0] * (len(self.x[idx]) - self.proMask[idx])
         selMask = [1.0] * self.selMask[idx] + [0.0] * (len(self.label[idx]) - self.selMask[idx])
         
@@ -42,13 +45,11 @@ class MyDataset(Dataset):
     def __len__(self):
         return self._len
 
-def prepareDataset(config):
+def prepareDataset(config, embedding_path):
     train, valid = prepareData(config)
 
-
-
-    trainLoader = DataLoader(MyDataset(train), shuffle=True, batch_size=config.batchSize, drop_last=False)
-    validLoader = DataLoader(MyDataset(valid), shuffle=False, batch_size=config.batchSize, drop_last=False)
+    trainLoader = DataLoader(MyDataset(train, embedding_path=embedding_path), shuffle=True, batch_size=config.batchSize, drop_last=False)
+    validLoader = DataLoader(MyDataset(valid, embedding_path=embedding_path), shuffle=False, batch_size=config.batchSize, drop_last=False)
 
     return trainLoader, validLoader
 

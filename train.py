@@ -125,7 +125,8 @@ if __name__ == '__main__':
 
     config.batchSize = batchSize
 
-    trainLoader, validLoader = prepareDataset(config)
+    embedding_path = 'drug_embeddings_96dim.npy'
+    trainLoader, validLoader = prepareDataset(config, embedding_path=embedding_path)
     settings = {
             'remark': args.note,
             'selVoc': config.selVoc,

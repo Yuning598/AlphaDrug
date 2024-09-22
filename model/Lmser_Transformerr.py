@@ -48,7 +48,6 @@ class MFT(nn.Module):
                 nn.init.xavier_uniform_(p)
 
     def forward(self, src, tgt, selMask, proMask, tgt_mask):
-        print("Target mask (tgt_mask) shape:", tgt_mask.shape if tgt_mask is not None else None)
         tgt_mask = tgt_mask.squeeze(0)
         src = src.long()
         tgt = tgt.long()

@@ -15,6 +15,7 @@ from model.Lmser_Transformerr import MFT as DrugTransformer
 from utils.docking import CaculateAffinity, ProteinParser
 from utils.log import timeLable, readSettings, VisualizeMCTS, saveMCTSRes, VisualizeInterMCTS
 from beamsearch import sample
+import selfies as sf
 
 
 QE = 9
@@ -25,7 +26,7 @@ infoma = {}
 
 class Node:
 
-    def __init__(self, parentNode=None, childNodes=[], path=[],p=1.0, smiMaxLen=999):
+    def __init__(self, parentNode=None, childNodes=[], path=[],p=1.0, selMaxLen=999):
         global groundIndex
         self.index = groundIndex
         groundIndex += 1
@@ -36,7 +37,7 @@ class Node:
         self.visits = 0
         self.path = path  #MCTS 路径
         self.p = p
-        self.smiMaxLen = smiMaxLen
+        self.selMaxLen = selMaxLen
 
     def SelectNode(self):
         nodeStatus = self.checkExpand()
@@ -53,7 +54,7 @@ class Node:
         return self, nodeStatus
 
     def AddNode(self, content, p):
-        n = Node(self, [], self.path + [content], p=p, smiMaxLen=self.smiMaxLen)
+        n = Node(self, [], self.path + [content], p=p, selMaxLen=self.selMaxLen)
         self.childNodes.append(n)
         return n
     
@@ -83,14 +84,14 @@ class Node:
 
         if self.path[-1] == '$':
             return 1
-        elif not (len(self.path) < self.smiMaxLen):
+        elif not (len(self.path) < self.selMaxLen):
             return 2
         elif len(self.childNodes) == 0:
             return 3
         return 4
         
-def JudgePath(path, smiMaxLen):
-    return (path[-1] != '$') and (len(path) < smiMaxLen)
+def JudgePath(path, selMaxLen):
+    return (path[-1] != '$') and (len(path) < selMaxLen)
 
 def Select(rootNode):
     while True:
@@ -99,7 +100,7 @@ def Select(rootNode):
             return rootNode, nodeStatus
   
 def Expand(rootNode, atomList, plist):
-    if JudgePath(rootNode.path, rootNode.smiMaxLen):
+    if JudgePath(rootNode.path, rootNode.selMaxLen):
         for i, atom in enumerate(atomList):
             rootNode.AddNode(atom, plist[i])
 
@@ -120,15 +121,15 @@ def updateMinMax(node):
 
 def rollout(node, model):
     path = node.path[:]
-    smiMaxLen = node.smiMaxLen
+    selMaxLen = node.selMaxLen
     
     allScore = []
-    allValidSmiles = []
-    allSmiles = []
+    allValidselfies = []
+    allSelfies = []
 
-    while JudgePath(path, smiMaxLen):
+    while JudgePath(path, selMaxLen):
         # 快速走子
-        atomListExpanded, pListExpanded = sample(model, path, vocabulary, proVoc, smiMaxLen, proMaxLen, device, 30, protein_seq)
+        atomListExpanded, pListExpanded = sample(model, path, vocabulary, proVoc, selMaxLen, proMaxLen, device, 30, protein_seq)
         
         m = np.max(pListExpanded)
         indices = np.nonzero(pListExpanded == m)[0]
@@ -136,40 +137,41 @@ def rollout(node, model):
         path.append(atomListExpanded[ind])
     
     if path[-1] == '$':
-        smileK = ''.join(path[1:-1])
-        allSmiles.append(smileK)
+        selfiesK = ''.join([f'[{atom}]' for atom in path[1:-1]])
+        allSelfies.append(selfiesK)
         try:
-            mols = Chem.MolFromSmiles(smileK)
+            selfiesK = sf.decoder(selfiesK)
+            mols = Chem.MolFromSmiles(selfiesK)
         except:
             pass
-        if mols and len(smileK) < smiMaxLen:
+        if mols and len(selfiesK) < selMaxLen:
             global infoma
-            if smileK in infoma:
-                affinity = infoma[smileK]
+            if selfiesK in infoma:
+                affinity = infoma[selfiesK]
             else:
-                affinity = CaculateAffinity(smileK, file_protein=pro_file[args.k], file_lig_ref=ligand_file[args.k], out_path=resFolderPath)
-                infoma[smileK] = affinity
+                affinity = CaculateAffinity(selfiesK, file_protein=pro_file[args.k], file_lig_ref=ligand_file[args.k], out_path=resFolderPath)
+                infoma[selfiesK] = affinity
             
             if affinity == 500:
                 Update(node, QMIN)
             else:
-                logger.success(smileK + '       ' + str(-affinity))
+                logger.success(selfiesK + '       ' + str(-affinity))
                 Update(node, -affinity)
                 allScore.append(-affinity)
-                allValidSmiles.append(smileK)
+                allValidselfies.append(selfiesK)
         else:
-            logger.error('invalid: %s'%(''.join(path)))
+            logger.error(f"invalid: {''.join([f'[{atom}]' for atom in path])}")
             Update(node, QMIN)
     else:
-        logger.warning('abnormal ending: %s'%(''.join(path)))
+        logger.warning(f"Abnormal ending: {''.join([f'[{atom}]' for atom in path])}")
         Update(node, QMIN)
 
-    return allScore, allValidSmiles, allSmiles
+    return allScore, allValidselfies, allSelfies
     
 def MCTS(rootNode):
     allScore = []
-    allValidSmiles = []
-    allSmiles = []
+    allValidSelfies = []
+    allSelfies = []
     currSimulationTimes = 0
     
     while currSimulationTimes < simulation_times:
@@ -186,13 +188,14 @@ def MCTS(rootNode):
         # VisualizeInterMCTS(rootNode, modelName, './', times, QMAX, QMIN, QE)
 
         #rollout
-        score, validSmiles, aSmiles = rollout(node, model)
+
+        score, validSelfies, aSelfies = rollout(node, model)
         allScore.extend(score)
-        allValidSmiles.extend(validSmiles)
-        allSmiles.extend(aSmiles)
+        allValidSelfies.extend(validSelfies)
+        allSelfies.extend(aSelfies)
 
         #MCTS EXPAND 
-        atomList, logpListExpanded = sample(model, node.path, vocabulary, proVoc, smiMaxLen, proMaxLen, device, 30, protein_seq)
+        atomList, logpListExpanded = sample(model, node.path, vocabulary, proVoc, selMaxLen, proMaxLen, device, 30, protein_seq)
         pListExpanded = [np.exp(p) for p in logpListExpanded]
         Expand(node, atomList, pListExpanded)
 
@@ -205,15 +208,15 @@ def MCTS(rootNode):
         indices = list(set(np.argmax(prList, axis=1)))[0]
         logger.info([(n.visits)/allvisit for n in rootNode.childNodes])
 
-    return rootNode.childNodes[indices], allScore, allValidSmiles, allSmiles
+    return rootNode.childNodes[indices], allScore, allValidSelfies, allSelfies
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-k', type=int, default=0, help='protein index')
     parser.add_argument('--device', type=str, default='0')
-    parser.add_argument('-st', type=int, default=50, help='simulation times')
+    parser.add_argument('-st', type=int, default=10, help='simulation times')
     parser.add_argument('--source', type=str, default='new')
-    parser.add_argument('-p', type=str, default='LT', help='pretrained model')
+    parser.add_argument('-p', type=str, default='test2', help='pretrained model')
 
     parser.add_argument('--max', action="store_true", help='max mode')
 
@@ -234,7 +237,7 @@ if __name__ == '__main__':
     experimentId = os.path.join('experiment', args.p)
     ST = time.time()
 
-    modelName = '30.pt'
+    modelName = '49.pt'
     hpc_device = "gpu" if torch.cuda.is_available() else "cpu"
     mode = "max" if args.max else "freq"
     resFolder = '%s_%s_mcts_%s_%s_%s_%s_%s'%(hpc_device,mode,simulation_times, timeLable(), modelName, args.k, test_pdblist[args.k])
@@ -253,62 +256,63 @@ if __name__ == '__main__':
     else:
         
         s = readSettings(experimentId)
-        vocabulary = s.smiVoc
+        vocabulary = s.selVoc
         proVoc = s.proVoc
-        smiMaxLen = int(s.smiMaxLen)
+        selMaxLen = int(s.selMaxLen)
         proMaxLen = int(s.proMaxLen)
         
         device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         device_ids = [i for i in range(torch.cuda.device_count())] # 10卡机
         
         model = DrugTransformer(**s)
-        model = torch.nn.DataParallel(model, device_ids=device_ids) # 指定要用到的设备
+        # model = torch.nn.DataParallel(model, device_ids=device_ids) # 指定要用到的设备
         model = model.to(device) # 模型加载到设备0
         model.load_state_dict(torch.load(experimentId +'/model/'+ modelName, map_location=device))
         model.to(device)
         model.eval()
         
-        node = Node(path=['&'],smiMaxLen=smiMaxLen)
+        node = Node(path=['&'], selMaxLen=selMaxLen)
         
         times = 0
         allScores = []
-        allValidSmiles = []
-        allSmiles = []
+        allValidSelfies = []
+        allSelfies = []
 
-        while(JudgePath(node.path, smiMaxLen)):
+        while(JudgePath(node.path, selMaxLen)):
             
             times += 1
-            node, scores, validSmiles, smiles = MCTS(node)
+            node, scores, validSelfies, selfies = MCTS(node)
             
             allScores.append(scores)
-            allValidSmiles.append(validSmiles)
-            allSmiles.append(smiles)
+            allValidSelfies.append(validSelfies)
+            allSelfies.append(selfies)
 
             VisualizeMCTS(node.parentNode, modelName, resFolderPath, times)
 
-        alphaSmi = ''
+        alphaSel = ''
         affinity = 500
         if node.path[-1] == '$':
-            alphaSmi = ''.join(node.path[1:-1])
-            if Chem.MolFromSmiles(alphaSmi):
-                logger.success(alphaSmi)
-                if alphaSmi in infoma:
-                    affinity = infoma[alphaSmi]
+            alphaSel = ''.join([f'[{atom}]' for atom in node.path[1:-1]])
+            alphaSel = sf.decoder(alphaSel)
+            if Chem.MolFromSmiles(alphaSel):
+                logger.success(alphaSel)
+                if alphaSel in infoma:
+                    affinity = infoma[alphaSel]
                 else:
-                    affinity = CaculateAffinity(alphaSmi, file_protein=pro_file[args.k], file_lig_ref=ligand_file[args.k], out_path=resFolderPath)
+                    affinity = CaculateAffinity(alphaSel, file_protein=pro_file[args.k], file_lig_ref=ligand_file[args.k], out_path=resFolderPath)
                 # affinity = CaculateAffinity(alphaSmi, file_protein=pro_file[args.k], file_lig_ref=ligand_file[args.k])
                 
                 logger.success(-affinity)
             else:
-                logger.error('invalid: ' + ''.join(node.path))
+                logger.error('invalid: ' + alphaSel)
         else:
             logger.error('abnormal ending: ' + ''.join(node.path))
 
         saveMCTSRes(resFolderPath, {
                 'score': allScores,
-                'validSmiles': allValidSmiles,
-                'allSmiles': allSmiles,
-                'finalSmile': alphaSmi,
+                'allValidSelfies': allValidSelfies,
+                'allSelfies': allSelfies,
+                'finalSelfies': alphaSel,
                 'finalScore': -affinity
             })
 

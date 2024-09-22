@@ -22,6 +22,7 @@ from model.Lmser_Transformerr import MFT as DrugTransformer
 from rdkit import Chem
 from loguru import logger
 from utils.docking import CaculateAffinity, ProteinParser
+import selfies as sf
 
 class Node:
 
@@ -38,6 +39,7 @@ def check_node(node, k):
         return affinity, ''.join(node.path[1:])
 
     smile = ''.join(node.path[1:-1])
+    smile = sf.decoder(smile)
     try:
         m = Chem.MolFromSmiles(smile)
     except:

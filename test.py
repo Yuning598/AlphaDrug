@@ -17,9 +17,7 @@ def main():
     args = {}  # Populate your args as needed
 
     # Get a sample of the first 1000 rows
-    data = pd.read_csv('./data/small_train-val-data.tsv', sep='\t')  # Load only the first 1000 rows
-    # Save the sample to a file
-    data.to_csv('./data/small_train-val-data.tsv', sep='\t', index=False)
+    clean()
 
 
 def clean_file(input_file, output_file):
@@ -28,6 +26,9 @@ def clean_file(input_file, output_file):
 
     # Print the number of rows before cleaning
     print(f"Number of rows before cleaning: {len(data)}")
+
+    # Take the first 10% of rows
+    data = data.iloc[:int(len(data) * 0.1)]
 
     # Convert SMILES to SELFIES
     data['selfies'] = data['smiles'].apply(to_selfies)
@@ -43,7 +44,7 @@ def clean_file(input_file, output_file):
     cleaned_data.to_csv(output_file, sep='\t', index=False)
     print(f"Cleaned data saved to {output_file}")
 def clean():
-    clean_file('./data/small_with_selfies.tsv','./data/small_with_selfies.tsv')
+    clean_file('./data/train-val-data.tsv','./data/small_with_selfies.tsv')
 def transformSMI():
     args = {}
 
@@ -53,11 +54,6 @@ def transformSMI():
 
     # Save the new data with SELFIES to a file
     sample_data.to_csv('./data/smile_train-val-data.tsv', sep='\t', index=False)
-
-
-
-
-
 
 
 
@@ -77,3 +73,5 @@ if __name__ == "__main__":
             print(f"Device ID: {i}, Device Name: {torch.cuda.get_device_name(i)}")
     else:
         print("CUDA is not available. No GPU found.")
+
+    main()

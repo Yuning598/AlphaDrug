@@ -102,7 +102,7 @@ if __name__ == '__main__':
     
     parser.add_argument('--layers', type=int, default=4, help='transformer layers')
     parser.add_argument('-l', action="store_true", help='learning rate')
-    parser.add_argument('--epoch', type=int, default=5, help='epochs')
+    parser.add_argument('--epoch', type=int, default=50, help='epochs')
     parser.add_argument('--device', type=str, default='0', help='device')
     parser.add_argument('--pretrain', type=str, default='', help='pretrain model path')
     parser.add_argument('--bs', type=int, default=32, help='bs')

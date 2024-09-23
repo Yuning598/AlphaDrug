@@ -28,7 +28,7 @@ def clean_file(input_file, output_file):
     print(f"Number of rows before cleaning: {len(data)}")
 
     # Take the first 10% of rows
-    data = data.iloc[:int(len(data) * 0.1)]
+    data = data.iloc[:int(len(data) * 0.1/3)]
 
     # Convert SMILES to SELFIES
     data['selfies'] = data['smiles'].apply(to_selfies)
